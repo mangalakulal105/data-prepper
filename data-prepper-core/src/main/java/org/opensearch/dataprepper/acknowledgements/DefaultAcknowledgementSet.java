@@ -27,7 +27,7 @@ import java.util.function.Consumer;
 public class DefaultAcknowledgementSet implements AcknowledgementSet {
     private static final Logger LOG = LoggerFactory.getLogger(DefaultAcknowledgementSet.class);
     private final Consumer<Boolean> callback;
-    private final Instant expiryTime;
+    private Instant expiryTime;
     private final ExecutorService executor;
     // This lock protects all the non-final members
     private final ReentrantLock lock;
@@ -37,7 +37,8 @@ public class DefaultAcknowledgementSet implements AcknowledgementSet {
     private final DefaultAcknowledgementSetMetrics metrics;
     private boolean completed;
 
-    public DefaultAcknowledgementSet(final ExecutorService executor, final Consumer<Boolean> callback, final Duration expiryTime, final DefaultAcknowledgementSetMetrics metrics) {
+    public DefaultAcknowledgementSet(final ExecutorService executor, final Consumer<Boolean> callback, final Duration expiryTime,
+                                     final DefaultAcknowledgementSetMetrics metrics) {
         this.callback = callback;
         this.result = true;
         this.executor = executor;
@@ -80,6 +81,7 @@ public class DefaultAcknowledgementSet implements AcknowledgementSet {
         }
     }
 
+    @Override
     public boolean isDone() {
         lock.lock();
         try {
@@ -102,8 +104,14 @@ public class DefaultAcknowledgementSet implements AcknowledgementSet {
         return false;
     }
 
+    @Override
     public Instant getExpiryTime() {
         return expiryTime;
+    }
+
+    @Override
+    public void setExpiryTime(final Instant expiryTime) {
+        this.expiryTime = expiryTime;
     }
 
     @Override

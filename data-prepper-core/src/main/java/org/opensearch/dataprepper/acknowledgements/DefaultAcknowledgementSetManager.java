@@ -7,6 +7,7 @@ package org.opensearch.dataprepper.acknowledgements;
 
 import org.opensearch.dataprepper.model.acknowledgements.AcknowledgementSet;
 import org.opensearch.dataprepper.model.acknowledgements.AcknowledgementSetManager;
+import org.opensearch.dataprepper.model.acknowledgements.ExpiryItem;
 import org.opensearch.dataprepper.model.event.Event;
 import org.opensearch.dataprepper.model.event.EventHandle;
 import org.opensearch.dataprepper.metrics.PluginMetrics;
@@ -26,6 +27,7 @@ public class DefaultAcknowledgementSetManager implements AcknowledgementSetManag
     private final AcknowledgementSetMonitorThread acknowledgementSetMonitorThread;
     private PluginMetrics pluginMetrics;
     private DefaultAcknowledgementSetMetrics metrics;
+    private ExpiryMonitor expiryMonitor = null;
 
     @Inject
     public DefaultAcknowledgementSetManager(
@@ -49,6 +51,15 @@ public class DefaultAcknowledgementSetManager implements AcknowledgementSetManag
         return acknowledgementSet;
     }
 
+    @Override
+    public void addExpiryMonitor(final ExpiryItem expiryItem) {
+        if (Objects.isNull(expiryMonitor)) {
+            this.expiryMonitor = new ExpiryMonitor();
+        }
+
+        expiryMonitor.addExpiryItem(expiryItem);
+    }
+
     public void acquireEventReference(final Event event) {
         acquireEventReference(event.getEventHandle());
     }
@@ -63,6 +74,9 @@ public class DefaultAcknowledgementSetManager implements AcknowledgementSetManag
 
     public void shutdown() {
         acknowledgementSetMonitorThread.stop();
+        if (Objects.nonNull(expiryMonitor)) {
+            expiryMonitor.shutdown();
+        }
     }
 
     /**

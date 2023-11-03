@@ -6,12 +6,14 @@
 package org.opensearch.dataprepper.plugins.source.s3;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.annotations.VisibleForTesting;
 import com.linecorp.armeria.client.retry.Backoff;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Timer;
 import org.opensearch.dataprepper.metrics.PluginMetrics;
 import org.opensearch.dataprepper.model.acknowledgements.AcknowledgementSet;
 import org.opensearch.dataprepper.model.acknowledgements.AcknowledgementSetManager;
+import org.opensearch.dataprepper.model.acknowledgements.ExpiryItem;
 import org.opensearch.dataprepper.plugins.source.s3.configuration.NotificationSourceOption;
 import org.opensearch.dataprepper.plugins.source.s3.configuration.OnErrorOption;
 import org.opensearch.dataprepper.plugins.source.s3.configuration.SqsOptions;
@@ -26,6 +28,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.services.sqs.SqsClient;
+import software.amazon.awssdk.services.sqs.model.ChangeMessageVisibilityRequest;
 import software.amazon.awssdk.services.sqs.model.DeleteMessageBatchRequest;
 import software.amazon.awssdk.services.sqs.model.DeleteMessageBatchRequestEntry;
 import software.amazon.awssdk.services.sqs.model.DeleteMessageBatchResponse;
@@ -42,6 +45,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 public class SqsWorker implements Runnable {
@@ -105,7 +109,7 @@ public class SqsWorker implements Runnable {
             try {
                 messagesProcessed = processSqsMessages();
             } catch (final Exception e) {
-                LOG.error("Unable to process SQS messages. Processing error due to: {}", e.getMessage());
+                LOG.error("Unable to process SQS messages", e);
                 // There shouldn't be any exceptions caught here, but added backoff just to control the amount of logging in case of an exception is thrown.
                 applyBackoff();
             }
@@ -236,6 +240,9 @@ public class SqsWorker implements Runnable {
                         deleteSqsMessages(waitingForAcknowledgements);
                     }
                 }, Duration.ofSeconds(timeout));
+
+                final Instant expiryTime = Instant.now().plusMillis(Duration.ofSeconds(timeout).toMillis());
+                acknowledgementSetManager.addExpiryMonitor(getExpiryItem(parsedMessage.getMessage(), expiryTime, acknowledgementSet));
             }
             final S3ObjectReference s3ObjectReference = populateS3Reference(parsedMessage.getBucketName(), parsedMessage.getObjectKey());
             final Optional<DeleteMessageBatchRequestEntry> deleteMessageBatchRequestEntry = processS3Object(parsedMessage, s3ObjectReference, acknowledgementSet);
@@ -334,6 +341,27 @@ public class SqsWorker implements Runnable {
         return S3ObjectReference
                 .bucketAndKey(bucketName, objectKey)
                 .build();
+    }
+
+    @VisibleForTesting
+    ExpiryItem getExpiryItem(final Message message, final Instant expirationTime, final AcknowledgementSet acknowledgementSet) {
+        final long visibilityTimeoutSeconds = sqsOptions.getVisibilityTimeout().getSeconds();
+        return new ExpiryItem(message.messageId(), visibilityTimeoutSeconds, expirationTime, getExpiryCallback(message), acknowledgementSet);
+    }
+
+    private Consumer<ExpiryItem> getExpiryCallback(final Message message) {
+        return expiryItem -> {
+            final int newVisibilityTimeoutSeconds = (int) (expiryItem.getPollSeconds());
+
+            final ChangeMessageVisibilityRequest changeMessageVisibilityRequest = ChangeMessageVisibilityRequest.builder()
+                    .visibilityTimeout(newVisibilityTimeoutSeconds)
+                    .queueUrl(sqsOptions.getSqsUrl())
+                    .receiptHandle(message.receiptHandle())
+                    .build();
+
+            LOG.info("Setting visibility timeout for message {} to {}", message.messageId(), newVisibilityTimeoutSeconds);
+            sqsClient.changeMessageVisibility(changeMessageVisibilityRequest);
+        };
     }
 
     void stop() {

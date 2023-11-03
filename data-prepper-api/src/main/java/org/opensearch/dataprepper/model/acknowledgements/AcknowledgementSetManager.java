@@ -30,6 +30,8 @@ public interface AcknowledgementSetManager {
      */
     AcknowledgementSet create(final Consumer<Boolean> callback, final Duration timeout);
 
+    void addExpiryMonitor(final ExpiryItem expiryItem);
+
     /**
      * Releases an event's reference
      *

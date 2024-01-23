@@ -35,6 +35,10 @@ class PluginConfigurationConverter {
     PluginConfigurationConverter(final Validator validator,
                                  @Named("pluginConfigObjectMapper")
                                  final ObjectMapper objectMapper) {
+        final SimpleModule simpleModule = new SimpleModule();
+        simpleModule.addDeserializer(Duration.class, new DataPrepperDurationDeserializer()
+                    .addDeserializer(ByteCount.class, new ByteCountDeserializer());
+        objectMapper.register(simpleModule);
         this.objectMapper = objectMapper;
         this.validator = validator;
     }

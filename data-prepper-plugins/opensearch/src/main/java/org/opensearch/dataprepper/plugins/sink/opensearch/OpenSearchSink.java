@@ -49,8 +49,11 @@ import org.opensearch.dataprepper.plugins.sink.opensearch.bulk.AccumulatingBulkR
 import org.opensearch.dataprepper.plugins.sink.opensearch.bulk.BulkApiWrapper;
 import org.opensearch.dataprepper.plugins.sink.opensearch.bulk.BulkApiWrapperFactory;
 import org.opensearch.dataprepper.plugins.sink.opensearch.bulk.BulkOperationWriter;
+import org.opensearch.dataprepper.plugins.sink.opensearch.bulk.InlineRequestSender;
 import org.opensearch.dataprepper.plugins.sink.opensearch.bulk.JavaClientAccumulatingCompressedBulkRequest;
 import org.opensearch.dataprepper.plugins.sink.opensearch.bulk.JavaClientAccumulatingUncompressedBulkRequest;
+import org.opensearch.dataprepper.plugins.sink.opensearch.bulk.ConcurrentRequestSender;
+import org.opensearch.dataprepper.plugins.sink.opensearch.bulk.RequestSender;
 import org.opensearch.dataprepper.plugins.sink.opensearch.bulk.SerializedJson;
 import org.opensearch.dataprepper.plugins.sink.opensearch.dlq.FailedBulkOperation;
 import org.opensearch.dataprepper.plugins.sink.opensearch.dlq.FailedBulkOperationConverter;
@@ -139,6 +142,7 @@ public class OpenSearchSink extends AbstractSink<Record<Event>> {
   private DlqProvider dlqProvider;
   private final ConcurrentHashMap<Long, AccumulatingBulkRequest<BulkOperationWrapper, BulkRequest>> bulkRequestMap;
   private final ConcurrentHashMap<Long, Long> lastFlushTimeMap;
+  private final RequestSender requestSender;
 
   @DataPrepperPluginConstructor
   public OpenSearchSink(final PluginSetting pluginSetting,
@@ -184,6 +188,13 @@ public class OpenSearchSink extends AbstractSink<Record<Event>> {
       final PluginSetting dlqPluginSetting = new PluginSetting(dlqConfig.get().getPluginName(), dlqConfig.get().getPluginSettings());
       dlqPluginSetting.setPipelineName(pluginSetting.getPipelineName());
       dlqProvider = pluginFactory.loadPlugin(DlqProvider.class, dlqPluginSetting);
+    }
+
+    final int concurrentRequests = openSearchSinkConfig.getConnectionConfiguration().getConcurrentRequests();
+    if (concurrentRequests > 0) {
+      this.requestSender = new ConcurrentRequestSender(concurrentRequests);
+    } else {
+      this.requestSender = new InlineRequestSender();
     }
   }
 
@@ -253,7 +264,7 @@ public class OpenSearchSink extends AbstractSink<Record<Event>> {
             TransportOptions.builder()
                     .setParameter("filter_path", "errors,took,items.*.error,items.*.status,items.*._index,items.*._id")
                     .build());
-    bulkApiWrapper = BulkApiWrapperFactory.getWrapper(openSearchSinkConfig.getIndexConfiguration(), filteringOpenSearchClient);
+    bulkApiWrapper = BulkApiWrapperFactory.getWrapper(openSearchSinkConfig.getIndexConfiguration(), filteringOpenSearchClient, restHighLevelClient);
     bulkRetryStrategy = new BulkRetryStrategy(bulkRequest -> bulkApiWrapper.bulk(bulkRequest.getRequest()),
             this::logFailureForBulkRequests,
             pluginMetrics,
@@ -492,6 +503,10 @@ public class OpenSearchSink extends AbstractSink<Record<Event>> {
   }
 
   private void flushBatch(AccumulatingBulkRequest accumulatingBulkRequest) {
+    requestSender.sendRequest(this::doFlushBatch, accumulatingBulkRequest);
+  }
+
+  private void doFlushBatch(AccumulatingBulkRequest accumulatingBulkRequest) {
     bulkRequestTimer.record(() -> {
       try {
         LOG.debug("Sending data to OpenSearch");

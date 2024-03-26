@@ -90,7 +90,7 @@ public class BufferAccumulator<T extends Record<?>> {
             }, nextDelay, TimeUnit.MILLISECONDS);
 
             try {
-                flushedSuccessfully = flushBufferFuture.get();
+                flushedSuccessfully = flushBufferFuture.get(getMaxFlushDuration(nextDelay), TimeUnit.MILLISECONDS);
                 if (flushedSuccessfully) {
                     LOG.info("Successfully flushed the buffer accumulator on retry attempt {}", retryCount + 1);
                     scheduledExecutorService.shutdownNow();
@@ -102,6 +102,10 @@ public class BufferAccumulator<T extends Record<?>> {
                 throw e;
             } catch (final InterruptedException e) {
                 LOG.warn("Retrying of flushing the buffer accumulator was interrupted: {}", e.getMessage());
+                scheduledExecutorService.shutdownNow();
+                throw e;
+            } catch (final TimeoutException e) {
+                LOG.warn("Retrying of flushing the buffer accumulator did not complete in a reasonable duration: {}", e.getMessage());
                 scheduledExecutorService.shutdownNow();
                 throw e;
             }
@@ -119,6 +123,11 @@ public class BufferAccumulator<T extends Record<?>> {
             recordsAccumulated.clear();
             totalWritten += currentRecordCountAccumulated;
         }
+    }
+
+    private long getMaxFlushDuration(final long delay) {
+        // Max duration a flush should take * 2
+        return (bufferTimeoutMillis + delay) * 2;
     }
 
     /**

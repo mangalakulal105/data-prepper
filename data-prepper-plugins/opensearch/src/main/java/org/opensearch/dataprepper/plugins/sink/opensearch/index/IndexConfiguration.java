@@ -74,6 +74,7 @@ public class IndexConfiguration {
     public static final String DOCUMENT_VERSION_EXPRESSION = "document_version";
     public static final String DOCUMENT_VERSION_TYPE = "document_version_type";
     public static final String NORMALIZE_INDEX = "normalize_index";
+    public static final String DETECTOR_SCAN = "detector_scan";
 
     private IndexType indexType;
     private TemplateType templateType;
@@ -100,6 +101,7 @@ public class IndexConfiguration {
     private final String versionExpression;
     private final VersionType versionType;
     private final boolean normalizeIndex;
+    private final boolean detectorScan;
 
     private static final String S3_PREFIX = "s3://";
     private static final String DEFAULT_AWS_REGION = "us-east-1";
@@ -117,6 +119,7 @@ public class IndexConfiguration {
         this.versionExpression = builder.versionExpression;
         this.versionType = builder.versionType;
         this.normalizeIndex = builder.normalizeIndex;
+        this.detectorScan = builder.detectorScan;
 
         determineTemplateType(builder);
 
@@ -238,6 +241,9 @@ public class IndexConfiguration {
         final String versionType = pluginSetting.getStringOrDefault(DOCUMENT_VERSION_TYPE, null);
         final boolean normalizeIndex = pluginSetting.getBooleanOrDefault(NORMALIZE_INDEX, false);
         builder = builder.withNormalizeIndex(normalizeIndex);
+
+        final boolean detectorScan = pluginSetting.getBooleanOrDefault(DETECTOR_SCAN, false);
+        builder = builder.withDetectorScan(detectorScan);
 
         builder = builder.withVersionExpression(versionExpression);
         if (versionExpression != null && (!expressionEvaluator.isValidFormatExpression(versionExpression))) {
@@ -394,6 +400,8 @@ public class IndexConfiguration {
 
     public boolean isNormalizeIndex() { return normalizeIndex; }
 
+    public boolean isDetectorScan() { return detectorScan; }
+
     /**
      * This method is used in the creation of IndexConfiguration object. It takes in the template file path
      * or index type and returns the index template read from the file or specific to index type or returns an
@@ -478,6 +486,7 @@ public class IndexConfiguration {
         private VersionType versionType;
         private String versionExpression;
         private boolean normalizeIndex;
+        private boolean detectorScan;
 
         public Builder withIndexAlias(final String indexAlias) {
             checkArgument(indexAlias != null, "indexAlias cannot be null.");
@@ -653,6 +662,11 @@ public class IndexConfiguration {
 
         public Builder withNormalizeIndex(final boolean normalizeIndex) {
             this.normalizeIndex = normalizeIndex;
+            return this;
+        }
+
+        public Builder withDetectorScan(final boolean detectorScan) {
+            this.detectorScan = detectorScan;
             return this;
         }
 
